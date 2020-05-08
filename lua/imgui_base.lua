@@ -33,6 +33,9 @@ ImVec2 = ffi.metatype("ImVec2",{
         return ImVec2(a.x * b, a.y * b) end
         return ImVec2(a * b.x, a * b.y)
     end,
+	__index = function(a,i)
+		if i=="norm" then return math.sqrt(a.x*a.x+a.y*a.y) end
+	end,
     __tostring = function(v) return 'ImVec2<'..v.x..','..v.y..'>' end
 })
 local ImVec4= {}
@@ -295,13 +298,224 @@ M.Log = ffi.metatype("Log",Log)
 ------------convenience function
 function M.U32(a,b,c,d) return lib.igGetColorU32Vec4(ImVec4(a,b,c,d or 1)) end
 
----------------for using nonUDT2 versions
-function M.use_nonUDT2()
-    for k,v in pairs(M) do
-        if M[k.."_nonUDT2"] then
-            M[k] = M[k.."_nonUDT2"]
-        end
-    end
+---------------ImGuizmo
+function M.zmoManipulate(view, projection, operation, mode, objectMatrix, deltaMatrix, snap, localBounds, boundsSnap)
+	lib.igzmoManipulate(view, projection, operation, mode, objectMatrix, deltaMatrix or nil, snap or nil ,localBounds or nil , boundsSnap or nil )
+end
+M.zmoSetDrawlist = lib.igzmoSetDrawlist
+M.zmoBeginFrame = lib.igzmoBeginFrame
+M.zmoIsOver = lib.igzmoIsOver
+M.zmoIsUsing = lib.igzmoIsUsing
+M.zmoEnable = lib.igzmoEnable
+M.zmoSetOrthographic = lib.igzmoSetOrthographic
+M.zmoSetRect = lib.igzmoSetRect
+M.zmoDrawCube = lib.igzmoDrawCube
+M.zmoDrawGrid = lib.igzmoDrawGrid
+M.zmoViewManipulate = lib.igzmoViewManipulate
+
+-------------ImGuiZMO.quat
+M.setDirectionColor = lib.setDirectionColor
+M.restoreDirectionColor = lib.restoreDirectionColor
+M.resizeAxesOf = lib.resizeAxesOf
+M.restoreAxesSize = lib.restoreAxesSize
+
+function M.mat4_cast(q)
+	local nonUDT_out = ffi.new("Mat4")
+	lib.mat4_cast(q,nonUDT_out)
+	return nonUDT_out
+end
+function M.quat_cast(f)
+	local nonUDT_out = ffi.new("quat")
+	lib.quat_cast(f,nonUDT_out)
+	return nonUDT_out
+end
+
+M.Guizmo3D = lib.ImGuizmo3D
+M.Guizmo3Dquat = lib.ImGuizmo3Dquat
+M.Guizmo3Dvec4 = lib.ImGuizmo3Dvec4
+M.Guizmo3Dvec3 = lib.ImGuizmo3Dvec3
+M.Guizmo3Dquatquat = lib.ImGuizmo3Dquatquat
+M.Guizmo3Dquatvec4 = lib.ImGuizmo3Dquatvec4
+M.Guizmo3Dquatvec3 = lib.ImGuizmo3Dquatvec3
+
+--------------- several widgets------------
+local sin, cos, atan2, pi, max, min,acos,sqrt = math.sin, math.cos, math.atan2, math.pi, math.max, math.min,math.acos,math.sqrt
+function M.dial(label,value_p,sz, fac)
+
+	fac = fac or 1
+	sz = sz or 20
+	local style = M.GetStyle()
+	
+	local p = M.GetCursorScreenPos();
+
+	local radio =  sz*0.5
+	local center = M.ImVec2(p.x + radio, p.y + radio)
+	
+	local x2 = cos(value_p[0]/fac)*radio + center.x
+	local y2 = sin(value_p[0]/fac)*radio + center.y
+	
+	M.InvisibleButton(label.."t",M.ImVec2(sz, sz)) 
+	local is_active = M.IsItemActive()
+	local is_hovered = M.IsItemHovered()
+	
+	local touched = false
+	if is_active then 
+		touched = true
+		local m = M.GetIO().MousePos
+		local md = M.GetIO().MouseDelta
+		if md.x == 0 and md.y == 0 then touched=false end
+		local mp = M.ImVec2(m.x - md.x, m.y - md.y)
+		local ax = mp.x - center.x
+		local ay = mp.y - center.y
+		local bx = m.x - center.x
+		local by = m.y - center.y
+		local ma = sqrt(ax*ax + ay*ay)
+		local mb = sqrt(bx*bx + by*by)
+		local ab  = ax * bx + ay * by;
+		local vet = ax * by - bx * ay;
+		ab = ab / (ma * mb);
+		if not (ma == 0 or mb == 0 or ab < -1 or ab > 1) then
+
+			if (vet>0) then
+				value_p[0] = value_p[0] + acos(ab)*fac;
+			else 
+				value_p[0] = value_p[0] - acos(ab)*fac;
+			end
+		end
+	end
+	
+	local col32idx = is_active and lib.ImGuiCol_FrameBgActive or (is_hovered and lib.ImGuiCol_FrameBgHovered or lib.ImGuiCol_FrameBg)
+	local col32 = M.GetColorU32(col32idx, 1) 
+	local col32line = M.GetColorU32(lib.ImGuiCol_SliderGrabActive, 1) 
+	local draw_list = M.GetWindowDrawList();
+	draw_list:AddCircleFilled( center, radio, col32, 16);
+	draw_list:AddLine( center, M.ImVec2(x2, y2), col32line, 1);
+	M.SameLine()
+	M.PushItemWidth(50)
+	if M.InputFloat(label, value_p, 0.0, 0.1) then
+		touched = true
+	end
+	M.PopItemWidth()
+	return touched
+end
+
+function M.Curve(name,numpoints,LUTsize,pressed_on_modified)
+	if pressed_on_modified == nil then pressed_on_modified=true end
+	numpoints = numpoints or 10
+	LUTsize = LUTsize or 720
+	local CU = {name = name,numpoints=numpoints,LUTsize=LUTsize}
+	CU.LUT = ffi.new("float[?]",LUTsize)
+	CU.LUT[0] = -1
+	CU.points = ffi.new("ImVec2[?]",numpoints)
+	CU.points[0].x = -1
+	function CU:getpoints()
+		local pts = {}
+		for i=0,numpoints-1 do
+			pts[i+1] = {x=CU.points[i].x,y=CU.points[i].y}
+		end
+		return pts
+	end
+	function CU:setpoints(pts)
+		assert(#pts<=numpoints)
+		for i=1,#pts do
+			CU.points[i-1].x = pts[i].x
+			CU.points[i-1].y = pts[i].y
+		end
+		CU.LUT[0] = -1
+		lib.CurveGetData(CU.points, numpoints,CU.LUT, LUTsize )
+	end
+	function CU:get_data()
+		CU.LUT[0] = -1
+		lib.CurveGetData(CU.points, numpoints,CU.LUT, LUTsize )
+	end
+	function CU:draw(sz)
+		sz = sz or M.ImVec2(200,200)
+		return lib.Curve(name, sz,CU.points, CU.numpoints,CU.LUT, CU.LUTsize,pressed_on_modified) 
+	end
+	return CU
+end
+
+
+function M.pad(label,value,sz)
+	local function clip(val,mini,maxi) return math.min(maxi,math.max(mini,val)) end
+	sz = sz or 200
+	local canvas_pos = M.GetCursorScreenPos();
+	M.InvisibleButton(label.."t",M.ImVec2(sz, sz)) -- + style.ItemInnerSpacing.y))
+	local is_active = M.IsItemActive()
+	local is_hovered = M.IsItemHovered()
+	local touched = false
+	if is_active then
+		touched = true
+		local m = M.GetIO().MousePos
+		local md = M.GetIO().MouseDelta
+		if md.x == 0 and md.y == 0 and not M.IsMouseClicked(0,false) then touched=false end
+		value[0] = ((m.x - canvas_pos.x)/sz)*2 - 1
+		value[1] = (1.0 - (m.y - canvas_pos.y)/sz)*2 - 1
+		value[0] = clip(value[0], -1,1)
+		value[1] = clip(value[1], -1,1)
+	end
+	local draw_list = M.GetWindowDrawList();
+	draw_list:AddRect(canvas_pos,canvas_pos+M.ImVec2(sz,sz),M.U32(1,0,0,1))
+	draw_list:AddLine(canvas_pos + M.ImVec2(0,sz/2),canvas_pos + M.ImVec2(sz,sz/2) ,M.U32(1,0,0,1))
+	draw_list:AddLine(canvas_pos + M.ImVec2(sz/2,0),canvas_pos + M.ImVec2(sz/2,sz) ,M.U32(1,0,0,1))
+	draw_list:AddCircleFilled(canvas_pos + M.ImVec2((1+value[0])*sz,((1-value[1])*sz)+1)*0.5,5,M.U32(1,0,0,1))
+	return touched
+end
+
+function M.Plotter(xmin,xmax,nvals)
+	local Graph = {xmin=xmin or 0,xmax=xmax or 1,nvals=nvals or 400}
+	function Graph:init()
+		self.values = ffi.new("float[?]",self.nvals)
+	end
+	function Graph:itox(i)
+		return self.xmin + i/(self.nvals-1)*(self.xmax-self.xmin)
+	end
+	function Graph:calc(func,ymin1,ymax1)
+		local vmin = math.huge
+		local vmax = -math.huge
+		for i=0,self.nvals-1 do
+			self.values[i] = func(self:itox(i))
+			vmin = (vmin < self.values[i]) and vmin or self.values[i]
+			vmax = (vmax > self.values[i]) and vmax or self.values[i]
+		end
+		self.ymin = ymin1 or vmin
+		self.ymax = ymax1 or vmax
+	end
+	function Graph:draw()
+	
+		local regionsize = M.GetContentRegionAvail()
+		local desiredY = regionsize.y - M.GetFrameHeightWithSpacing()
+		M.PushItemWidth(-1)
+		M.PlotLines("##grafica",self.values,self.nvals,nil,nil,self.ymin,self.ymax,M.ImVec2(0,desiredY))
+		local p = M.GetCursorScreenPos() 
+		p.y = p.y - M.GetStyle().FramePadding.y
+		local w = M.CalcItemWidth()
+		self.origin = p
+		self.size = M.ImVec2(w,desiredY)
+		
+		local draw_list = M.GetWindowDrawList()
+		for i=0,4 do
+			local ylab = i*desiredY/4 --+ M.GetStyle().FramePadding.y
+			draw_list:AddLine(M.ImVec2(p.x, p.y - ylab), M.ImVec2(p.x + w,p.y - ylab), M.U32(1,0,0,1))
+			local valy = self.ymin + (self.ymax - self.ymin)*i/4
+			local labelY = string.format("%0.3f",valy)
+			-- - M.CalcTextSize(labelY).x
+			draw_list:AddText(M.ImVec2(p.x , p.y -ylab), M.U32(0,1,0,1),labelY)
+		end
+	
+		for i=0,10 do
+			local xlab = i*w/10
+			draw_list:AddLine(M.ImVec2(p.x + xlab,p.y), M.ImVec2(p.x + xlab,p.y - desiredY), M.U32(1,0,0,1))
+			local valx = self:itox(i/10*(self.nvals -1))
+			draw_list:AddText(M.ImVec2(p.x + xlab,p.y + 2), M.U32(0,1,0,1),string.format("%0.3f",valx))
+		end
+		
+		M.PopItemWidth()
+		
+		return w,desiredY
+	end
+	Graph:init()
+	return Graph
 end
 
 

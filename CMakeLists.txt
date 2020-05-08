@@ -20,6 +20,8 @@ else(WIN32)
     add_definitions("-DIMGUI_IMPL_API=extern \"C\" ")
 endif(WIN32)
 
+add_compile_definitions("IMGUI_IMPL_OPENGL_LOADER_GL3W")
+
 #optional adding implementations
 option(IMPL_GLFW "add GLFW implementation" OFF)
 option(IMPL_SDL "add SDL implementation" OFF)
@@ -49,8 +51,12 @@ if(IMPL_OPENGL2)
 endif(IMPL_OPENGL2)
 
 if(IMPL_EXTRAS)
-    list(APPEND IMGUI_SOURCES_glfw ./extras/impl_glfw3/imgui_impl_glfw_gl3.cpp)
+    #list(APPEND IMGUI_SOURCES_glfw ./extras/impl_glfw3/imgui_impl_glfw_gl3.cpp)
     list(APPEND IMGUI_SOURCES ./extras/knob.cpp  ./extras/curve.cpp)
+	include_directories(extras/imGuIZMO.quat/imGuIZMO.quat/)
+	list(APPEND IMGUI_SOURCES ./extras/imGuIZMO.quat/imGuIZMO.quat/imGuIZMOquat.cpp  ./extras/imGuIZMO.quat.cpp)
+	include_directories(extras/ImGuizmo/)
+	list(APPEND IMGUI_SOURCES ./extras/ImGuizmo/ImGuizmo.cpp ./extras/imGuizmo.cpp)
 endif(IMPL_EXTRAS)
 
 if(IMPL_GLFW)
