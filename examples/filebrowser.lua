@@ -1,11 +1,5 @@
 local ffi = require "ffi"
--- https://github.com/sonoro1234/LuaJIT-GLFW
-local lj_glfw = require"glfw"
-local gllib = require"gl"
-gllib.set_loader(lj_glfw)
-local gl, glc, glu, glext = gllib.libraries()
-local ig = require"imgui.glfw"
-local imgui = ig.lib
+
 ---------------------------------------------FileBrowser---------------------------------------
 -- plain luafilesystem
 --local lfs = require"lfs"
@@ -68,6 +62,8 @@ function M.this_script_path()
     return splitpath(abspath(arg[0])) --.. sep
 end
 local pathut = M
+
+function loader(ig)
     -----------------------YesNo dialog ---------------
 local gui = {}
 function gui.YesNo(msg)
@@ -101,8 +97,8 @@ function gui.FileBrowser(filename_p, args, funcOK)
     
     args = args or {}
     args.key = args.key or "filechooser"
-    local pattern_ed = ffi.new"char[32]"
-    ffi.copy(pattern_ed, args.pattern or "" )
+    local pattern_ed = ffi.new("char[32]",args.pattern or "" )
+    --ffi.copy(pattern_ed, args.pattern or "" )
     local pathut = M --require"anima.path"
     local curr_dir = args.curr_dir or pathut.this_script_path() 
     local curr_dir_ed = ffi.new("char[256]")
@@ -135,8 +131,8 @@ function gui.FileBrowser(filename_p, args, funcOK)
     local function filechooser()
     
         
-        if (ig.BeginPopupModal(args.key, nil, 0)) then --imgui.ImGuiWindowFlags_AlwaysAutoResize)) then
-            --imgui.igText(curr_dir);
+        if (ig.BeginPopupModal(args.key, nil, ffi.C.ImGuiWindowFlags_AlwaysAutoResize)) then
+
             local tsize = ig.CalcTextSize(curr_dir_ed, nil,false, -1.0);
             ig.PushItemWidth(tsize.x + ig.GetStyle().ItemInnerSpacing.x * 2)
             if ig.InputText("##dir",curr_dir_ed,256,0,nil,nil) then
@@ -156,7 +152,7 @@ function gui.FileBrowser(filename_p, args, funcOK)
             ig.BeginChild("files", ig.ImVec2(0,desiredY), true, 0)
             
             for i,v in ipairs(curr_dir_dirs) do
-                if(ig.Selectable(v.name.." ->",false,imgui.ImGuiSelectableFlags_AllowDoubleClick,ig.ImVec2(0,0))) then 
+                if(ig.Selectable(v.name.." ->",false,ig.lib.ImGuiSelectableFlags_AllowDoubleClick,ig.ImVec2(0,0))) then 
                     if (ig.IsMouseDoubleClicked(0)) then
                             ffi.copy(save_file_name, "")
                             curr_dir = pathut.abspath(v.path)
@@ -166,7 +162,7 @@ function gui.FileBrowser(filename_p, args, funcOK)
                 end
             end
             for i,v in ipairs(curr_dir_files) do
-                if(ig.Selectable(v.name,false,imgui.ImGuiSelectableFlags_AllowDoubleClick,ig.ImVec2(0,0))) then
+                if(ig.Selectable(v.name,false,ig.lib.ImGuiSelectableFlags_AllowDoubleClick,ig.ImVec2(0,0))) then
                     if (ig.IsMouseDoubleClicked(0)) then
                         ffi.copy(save_file_name, v.name)
                     end
@@ -219,47 +215,7 @@ function gui.FileBrowser(filename_p, args, funcOK)
     return {draw = filechooser, open = function() curr_dir_done = false;ig.OpenPopup(args.key) end,func = funcOK}
 end
 
-local fb = gui.FileBrowser(nil,{key="loader",pattern="%.lua"},function(fname) print("load",fname) end)
-local fbs = gui.FileBrowser(nil,{key="saver",check_existence=true},function(fname) print("save",fname) end)
--------------------------main program------------------
-lj_glfw.setErrorCallback(function(error,description)
-    print("GLFW error:",error,ffi.string(description or ""));
-end)
-
-lj_glfw.init()
-local window = lj_glfw.Window(700,500)
-window:makeContextCurrent() 
-
---local ig_gl3 = ig.ImplGlfwGL3()
-local ig_gl3 = ig.Imgui_Impl_glfw_opengl3() --standard imgui opengl3 example
-
-ig_gl3:Init(window, true)
-
-local buffer = ffi.new("char[256]", "1/x")
-local showdemo = ffi.new("bool[1]",false)
-while not window:shouldClose() do
-
-    lj_glfw.pollEvents()
-    
-    gl.glClear(glc.GL_COLOR_BUFFER_BIT)
-    
-    ig_gl3:NewFrame()
-    
-    if ig.SmallButton("load") then
-        fb.open()
-    end
-    fb.draw()
-    
-    if ig.SmallButton("save") then
-        fbs.open()
-    end
-    fbs.draw()
-    
-    ig_gl3:Render()
-    
-    window:swapBuffers()                    
+return gui
 end
 
-ig_gl3:destroy()
-window:destroy()
-lj_glfw.terminate()
+return loader
